@@ -46,16 +46,16 @@ This MCP server is designed for remote deployment on **[Alpic.ai](https://alpic.
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Build
-npm run build
+pnpm build
 
 # Start server
-npm start
+pnpm start
 
 # Development with hot reload
-npm run dev
+pnpm dev
 ```
 
 The server will start on port 8000 by default (configurable via `PORT` or `MCP_HTTP_PORT` environment variable).
