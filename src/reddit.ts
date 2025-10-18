@@ -1,140 +1,138 @@
-import Snoowrap from "snoowrap";
 import { Post, Comment, SubredditInfo, PostType, PostDetail } from "./types.js";
 
-// Create Reddit client with user agent (no authentication needed for public API)
-const reddit = new Snoowrap({
-  userAgent: "mcp-server-reddit/0.2.0",
-  clientId: "",
-  clientSecret: "",
-  refreshToken: "",
-});
+const USER_AGENT = "mcp-server-reddit/0.2.0";
 
-// Disable warnings for missing credentials (we're using public API only)
-reddit.config({ warnings: false, requestDelay: 1000 });
+async function fetchReddit(url: string): Promise<any> {
+  const response = await fetch(url, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+  if (!response.ok) {
+    throw new Error(`Reddit API error: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data;
+}
 
-function getPostType(submission: any): PostType {
-  if (submission.is_video) return PostType.MEDIA;
-  if (submission.is_gallery) return PostType.GALLERY;
-  if (submission.is_self) return PostType.TEXT;
-  if (submission.url) return PostType.LINK;
+function getPostType(post: any): PostType {
+  if (post.is_video) return PostType.MEDIA;
+  if (post.is_gallery) return PostType.GALLERY;
+  if (post.is_self) return PostType.TEXT;
+  if (post.url) return PostType.LINK;
   return PostType.UNKNOWN;
 }
 
-function getPostContent(submission: any): string | null {
-  if (submission.is_self && submission.selftext) {
-    return submission.selftext;
-  }
-  if (submission.url) {
-    return submission.url;
-  }
-  return null;
-}
-
-function buildPost(submission: any): Post {
+function buildPost(post: any): Post {
   return {
-    id: submission.id,
-    title: submission.title,
-    author: submission.author?.name || "[deleted]",
-    score: submission.score || 0,
-    subreddit: submission.subreddit?.display_name || "unknown",
-    url: `https://reddit.com${submission.permalink}`,
-    created_at: new Date(submission.created_utc * 1000).toISOString(),
-    comment_count: submission.num_comments || 0,
-    post_type: getPostType(submission),
-    content: getPostContent(submission),
+    id: post.id,
+    title: post.title,
+    author: post.author || "[deleted]",
+    score: post.score || 0,
+    subreddit: post.subreddit || "unknown",
+    url: `https://reddit.com${post.permalink}`,
+    created_at: new Date(post.created_utc * 1000).toISOString(),
+    comment_count: post.num_comments || 0,
+    post_type: getPostType(post),
+    content: post.is_self ? post.selftext : post.url,
   };
 }
 
 function buildComment(comment: any, depth: number = 3): Comment | null {
-  if (depth <= 0 || !comment || typeof comment === "string") return null;
+  if (depth <= 0 || !comment || comment.kind !== "t1") return null;
 
+  const data = comment.data;
   const replies: Comment[] = [];
-  if (comment.replies && Array.isArray(comment.replies)) {
-    for (const reply of comment.replies) {
-      const childComment = buildComment(reply, depth - 1);
-      if (childComment) {
-        replies.push(childComment);
-      }
+
+  if (data.replies && data.replies.data && data.replies.data.children) {
+    for (const reply of data.replies.data.children) {
+      const built = buildComment(reply, depth - 1);
+      if (built) replies.push(built);
     }
   }
 
   return {
-    id: comment.id || "unknown",
-    author: comment.author?.name || "[deleted]",
-    body: comment.body || "",
-    score: comment.score || 0,
+    id: data.id,
+    author: data.author || "[deleted]",
+    body: data.body || "",
+    score: data.score || 0,
     replies,
   };
 }
 
 export async function getFrontpagePosts(limit: number = 10): Promise<Post[]> {
-  const submissions = await reddit.getHot({ limit });
-  return submissions.map(buildPost);
+  const data = await fetchReddit(`https://www.reddit.com/.json?limit=${limit}`);
+  return data.data.children.map((child: any) => buildPost(child.data));
 }
 
-export async function getSubredditInfo(subredditName: string): Promise<SubredditInfo> {
-  const subreddit = await reddit.getSubreddit(subredditName).fetch();
+export async function getSubredditInfo(
+  subredditName: string,
+): Promise<SubredditInfo> {
+  const data = await fetchReddit(
+    `https://www.reddit.com/r/${subredditName}/about.json`,
+  );
   return {
-    name: subreddit.display_name,
-    subscriber_count: subreddit.subscribers || 0,
-    description: subreddit.public_description || null,
+    name: data.data.display_name,
+    subscriber_count: data.data.subscribers || 0,
+    description: data.data.public_description || null,
   };
 }
 
 export async function getSubredditHotPosts(
   subredditName: string,
-  limit: number = 10
+  limit: number = 10,
 ): Promise<Post[]> {
-  const submissions = await reddit.getSubreddit(subredditName).getHot({ limit });
-  return submissions.map(buildPost);
+  const data = await fetchReddit(
+    `https://www.reddit.com/r/${subredditName}/hot.json?limit=${limit}`,
+  );
+  return data.data.children.map((child: any) => buildPost(child.data));
 }
 
 export async function getSubredditNewPosts(
   subredditName: string,
-  limit: number = 10
+  limit: number = 10,
 ): Promise<Post[]> {
-  const submissions = await reddit.getSubreddit(subredditName).getNew({ limit });
-  return submissions.map(buildPost);
+  const data = await fetchReddit(
+    `https://www.reddit.com/r/${subredditName}/new.json?limit=${limit}`,
+  );
+  return data.data.children.map((child: any) => buildPost(child.data));
 }
 
 export async function getSubredditTopPosts(
   subredditName: string,
   limit: number = 10,
-  time: string = ""
+  time: string = "",
 ): Promise<Post[]> {
-  const timeFilter = time as any;
-  const submissions = await reddit
-    .getSubreddit(subredditName)
-    .getTop({ limit, time: timeFilter || undefined });
-  return submissions.map(buildPost);
+  const timeParam = time ? `&t=${time}` : "";
+  const data = await fetchReddit(
+    `https://www.reddit.com/r/${subredditName}/top.json?limit=${limit}${timeParam}`,
+  );
+  return data.data.children.map((child: any) => buildPost(child.data));
 }
 
 export async function getSubredditRisingPosts(
   subredditName: string,
-  limit: number = 10
+  limit: number = 10,
 ): Promise<Post[]> {
-  const submissions = await reddit.getSubreddit(subredditName).getRising({ limit });
-  return submissions.map(buildPost);
+  const data = await fetchReddit(
+    `https://www.reddit.com/r/${subredditName}/rising.json?limit=${limit}`,
+  );
+  return data.data.children.map((child: any) => buildPost(child.data));
 }
 
 export async function getPostContent(
   postId: string,
   commentLimit: number = 10,
-  commentDepth: number = 3
+  commentDepth: number = 3,
 ): Promise<PostDetail> {
-  const submission = await reddit.getSubmission(postId).fetch();
-  const post = buildPost(submission);
-
-  // Expand comments
-  await submission.expandReplies({ limit: commentLimit, depth: commentDepth });
-
+  const data = await fetchReddit(
+    `https://www.reddit.com/comments/${postId}.json?limit=${commentLimit}&depth=${commentDepth}`,
+  );
+  const post = buildPost(data[0].data.children[0].data);
   const comments: Comment[] = [];
-  if (submission.comments && Array.isArray(submission.comments)) {
-    for (const comment of submission.comments.slice(0, commentLimit)) {
-      const builtComment = buildComment(comment, commentDepth);
-      if (builtComment) {
-        comments.push(builtComment);
-      }
+
+  if (data[1] && data[1].data && data[1].data.children) {
+    for (const child of data[1].data.children.slice(0, commentLimit)) {
+      const comment = buildComment(child, commentDepth);
+      if (comment) comments.push(comment);
     }
   }
 
@@ -143,18 +141,17 @@ export async function getPostContent(
 
 export async function getPostComments(
   postId: string,
-  limit: number = 10
+  limit: number = 10,
 ): Promise<Comment[]> {
-  const submission = await reddit.getSubmission(postId).fetch();
-  await submission.expandReplies({ limit, depth: 3 });
-
+  const data = await fetchReddit(
+    `https://www.reddit.com/comments/${postId}.json?limit=${limit}&depth=3`,
+  );
   const comments: Comment[] = [];
-  if (submission.comments && Array.isArray(submission.comments)) {
-    for (const comment of submission.comments.slice(0, limit)) {
-      const builtComment = buildComment(comment);
-      if (builtComment) {
-        comments.push(builtComment);
-      }
+
+  if (data[1] && data[1].data && data[1].data.children) {
+    for (const child of data[1].data.children.slice(0, limit)) {
+      const comment = buildComment(child, 3);
+      if (comment) comments.push(comment);
     }
   }
 
