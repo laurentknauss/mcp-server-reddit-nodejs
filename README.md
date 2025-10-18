@@ -38,7 +38,7 @@ This MCP server is designed for remote deployment on **[Alpic.ai](https://alpic.
 
 - Built with **TypeScript** and **Express**
 - Uses official **@modelcontextprotocol/sdk** for streamable HTTP transport
-- Uses [snoowrap](https://github.com/not-an-aardvark/snoowrap) for Reddit API access
+- Uses **Reddit's public JSON API** directly (no authentication required)
 - Node.js 20+ required
 - Fully compatible with MCP protocol specification
 
