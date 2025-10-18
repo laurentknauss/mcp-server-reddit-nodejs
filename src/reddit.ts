@@ -1,10 +1,28 @@
 import { Post, Comment, SubredditInfo, PostType, PostDetail } from "./types.js";
 
-const USER_AGENT = "mcp-server-reddit/0.2.0";
+// Reddit API requires format: <platform>:<app ID>:<version> (by /u/<reddit username>)
+// Using a descriptive user agent as per Reddit API guidelines
+const USER_AGENT = "nodejs:mcp-server-reddit:v0.2.0 (by /u/mcpbot)";
+
+// Rate limiting: keep track of last request time
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL = 1000; // 1 second between requests
 
 async function fetchReddit(url: string): Promise<any> {
+  // Implement simple rate limiting
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, MIN_REQUEST_INTERVAL - timeSinceLastRequest),
+    );
+  }
+  lastRequestTime = Date.now();
+
   const response = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT },
+    headers: {
+      "User-Agent": USER_AGENT,
+    },
   });
   if (!response.ok) {
     throw new Error(`Reddit API error: ${response.statusText}`);
